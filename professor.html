@@ -10,7 +10,16 @@
          min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:24px; }
   h1 { margin:0 0 4px; font-size:1.6rem; }
   .sub { color:#94a3b8; margin-bottom:20px; text-align:center; }
-  .sub input { background:#1e293b; color:#f8fafc; border:1px solid #334155; border-radius:6px; padding:4px 8px; width:120px; }
+  input { background:#1e293b; color:#f8fafc; border:1px solid #334155; border-radius:8px; padding:8px 10px; font-size:1rem; }
+  .sub input { width:120px; padding:4px 8px; }
+  .hidden { display:none !important; }
+
+  /* Login */
+  #loginBox { width:100%; max-width:360px; background:#1e293b; border-radius:16px; padding:24px; margin-top:40px; text-align:center; }
+  #loginBox input { width:100%; margin-bottom:12px; }
+  #loginErro { color:#f87171; min-height:24px; margin-top:8px; font-size:.95rem; }
+
+  /* Painel */
   #display { width:100%; max-width:800px; min-height:320px; background:#1e293b; border-radius:20px;
              display:flex; align-items:center; justify-content:center; text-align:center; padding:20px;
              font-size:2rem; margin-bottom:20px; }
@@ -20,6 +29,8 @@
   button { font-size:1.4rem; font-weight:700; padding:16px 32px; border:0; border-radius:12px;
            background:#22c55e; color:#052e16; cursor:pointer; }
   button:disabled { background:#475569; color:#94a3b8; cursor:not-allowed; }
+  button.pequeno { font-size:.9rem; padding:6px 12px; background:#334155; color:#e2e8f0; }
+  #loginBtn { width:100%; }
   #info { margin-top:20px; color:#94a3b8; text-align:center; max-width:800px; }
   #players { margin-top:8px; color:#cbd5e1; }
   a { color:#38bdf8; }
@@ -27,13 +38,28 @@
   #qr.grande { cursor:zoom-out; }
   #qr img, #qr canvas { display:block; }
   .dica { font-size:.85rem; color:#64748b; }
+  #topo { width:100%; max-width:800px; display:flex; justify-content:flex-end; margin-bottom:8px; }
 </style>
 </head>
 <body>
+
+<!-- LOGIN -->
+<div id="loginBox" class="hidden">
+  <h1>🔒 Área do Professor</h1>
+  <p class="dica" style="margin-bottom:16px">Entre para controlar a contagem</p>
+  <input id="email" type="email" placeholder="E-mail" autocomplete="username">
+  <input id="senha" type="password" placeholder="Senha" autocomplete="current-password">
+  <button id="loginBtn">Entrar</button>
+  <div id="loginErro"></div>
+</div>
+
+<!-- PAINEL -->
+<div id="painel" class="hidden" style="width:100%;display:flex;flex-direction:column;align-items:center">
+  <div id="topo"><button class="pequeno" id="sairBtn">Sair</button></div>
   <h1>👩‍🏫 Painel do Professor</h1>
   <div class="sub">
     Sala: <input id="salaInput" maxlength="30">
-    <button id="salaBtn" style="font-size:.9rem;padding:6px 12px">Trocar</button>
+    <button id="salaBtn" class="pequeno">Trocar</button>
   </div>
 
   <div id="display"></div>
@@ -46,10 +72,11 @@
     <div style="margin-top:10px">Ou acesse: <a id="linkAluno" target="_blank"></a></div>
     <div id="players"></div>
   </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
-// Este bloco NÃO depende do Firebase: o botão "Trocar" e o link funcionam sempre
+// Este bloco NÃO depende do Firebase (sala, link e QR Code)
 (function () {
   var p = new URLSearchParams(location.search);
   var sala = (p.get("sala") || "turma1").replace(/[.#$\[\]\/]/g, "").slice(0, 30);
@@ -61,17 +88,16 @@
   }
   document.getElementById("salaBtn").addEventListener("click", trocar);
   input.addEventListener("keydown", function (e) { if (e.key === "Enter") trocar(); });
-  var link = location.origin + location.pathname.replace("professor.html", "aluno.html") + "?sala=" + encodeURIComponent(sala);
+
+  var link = location.origin + location.pathname.replace(/[^\/]*$/, "aluno.html") + "?sala=" + encodeURIComponent(sala);
   if (location.protocol === "file:") link = "(publique no GitHub Pages para gerar o link)";
   var a = document.getElementById("linkAluno");
   a.href = link; a.textContent = link;
 
-  // QR Code (clique para ampliar, útil no projetor)
   var qrBox = document.getElementById("qr");
-  var qrObj = null;
   function desenharQR(tamanho) {
     qrBox.innerHTML = "";
-    qrObj = new QRCode(qrBox, { text: link, width: tamanho, height: tamanho, correctLevel: QRCode.CorrectLevel.M });
+    new QRCode(qrBox, { text: link, width: tamanho, height: tamanho, correctLevel: QRCode.CorrectLevel.M });
   }
   if (location.protocol === "file:" || typeof QRCode === "undefined") {
     qrBox.style.display = "none";
@@ -90,20 +116,64 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getDatabase, ref, set, update, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { firebaseConfig, getSala } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
+const auth = getAuth(app);
 const sala = getSala();
 const stateRef = ref(db, `salas/${sala}/state`);
 const playersRef = ref(db, `salas/${sala}/players`);
 
 const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const escapeHtml = t => String(t).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
 let state = null;
 let running = false;
+let listening = false;
 
-// Renderização
+/* ---------- LOGIN ---------- */
+function mensagemErro(code) {
+  switch (code) {
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+    case "auth/user-not-found": return "E-mail ou senha incorretos.";
+    case "auth/invalid-email": return "E-mail inválido.";
+    case "auth/too-many-requests": return "Muitas tentativas. Aguarde alguns minutos.";
+    case "auth/network-request-failed": return "Sem conexão com a internet.";
+    case "auth/unauthorized-domain": return "Domínio não autorizado no Firebase (veja Authentication > Configurações > Domínios autorizados).";
+    default: return "Não foi possível entrar (" + code + ").";
+  }
+}
+async function entrar() {
+  $("loginErro").textContent = "";
+  $("loginBtn").disabled = true;
+  try {
+    await signInWithEmailAndPassword(auth, $("email").value.trim(), $("senha").value);
+  } catch (e) {
+    $("loginErro").textContent = mensagemErro(e.code);
+  }
+  $("loginBtn").disabled = false;
+}
+$("loginBtn").onclick = entrar;
+$("senha").addEventListener("keydown", e => { if (e.key === "Enter") entrar(); });
+$("sairBtn").onclick = () => signOut(auth);
+
+onAuthStateChanged(auth, user => {
+  if (user) {
+    $("loginBox").classList.add("hidden");
+    $("painel").classList.remove("hidden");
+    iniciarPainel();
+  } else {
+    $("painel").classList.add("hidden");
+    $("loginBox").classList.remove("hidden");
+    $("senha").value = "";
+  }
+});
+
+/* ---------- PAINEL ---------- */
 function render() {
   const d = $("display");
   const s = state || { status: "idle" };
@@ -119,33 +189,38 @@ function render() {
   $("startBtn").disabled = running || s.status === "countdown" || s.status === "open";
   $("startBtn").textContent = s.status === "finished" ? "▶ Nova pergunta" : "▶ Iniciar contagem";
 }
-function escapeHtml(t) {
-  return String(t).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+function iniciarPainel() {
+  if (listening) return;
+  listening = true;
+  onValue(stateRef, snap => { state = snap.val(); render(); });
+  onValue(playersRef, snap => {
+    const p = snap.val() || {};
+    const nomes = Object.values(p).map(x => escapeHtml(x.name));
+    $("players").innerHTML = `👥 ${nomes.length} aluno(s) conectado(s)` + (nomes.length ? `: ${nomes.join(", ")}` : "");
+  });
+  render();
 }
 
-onValue(stateRef, snap => { state = snap.val(); render(); });
-onValue(playersRef, snap => {
-  const p = snap.val() || {};
-  const nomes = Object.values(p).map(x => escapeHtml(x.name));
-  $("players").innerHTML = `👥 ${nomes.length} aluno(s) conectado(s)` + (nomes.length ? `: ${nomes.join(", ")}` : "");
-});
-
-// Iniciar contagem 3, 2, 1
+// Iniciar contagem 3, 2, 1 (só funciona com o professor logado, garantido pelas regras)
 $("startBtn").onclick = async () => {
   if (running) return;
   running = true; render();
-  const round = ((state && state.round) || 0) + 1;
-  await set(stateRef, { status: "countdown", count: 3, winner: null, round });
-  await sleep(1000);
-  await update(stateRef, { count: 2 });
-  await sleep(1000);
-  await update(stateRef, { count: 1 });
-  await sleep(1000);
-  await update(stateRef, { status: "open", count: 0 }); // liberado!
+  try {
+    const round = ((state && state.round) || 0) + 1;
+    await set(stateRef, { status: "countdown", count: 3, winner: null, round });
+    await sleep(1000);
+    await update(stateRef, { count: 2 });
+    await sleep(1000);
+    await update(stateRef, { count: 1 });
+    await sleep(1000);
+    await update(stateRef, { status: "open", count: 0 });
+  } catch (e) {
+    alert("Erro ao iniciar: " + e.message + "\nVerifique se o UID do professor está correto nas regras do banco.");
+  }
   running = false;
+  render();
 };
-
-render();
 </script>
 </body>
 </html>
