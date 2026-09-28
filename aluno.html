@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Aluno - Quem responde primeiro</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; font-family: system-ui, Arial, sans-serif; background:#0f172a; color:#f8fafc;
+         min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+         padding:20px; text-align:center; }
+  h1 { font-size:1.5rem; margin:0 0 16px; }
+  input { font-size:1.4rem; padding:14px; border-radius:12px; border:2px solid #334155; background:#1e293b;
+          color:#f8fafc; width:100%; max-width:340px; text-align:center; }
+  .btn { font-size:1.3rem; font-weight:700; padding:14px 28px; border:0; border-radius:12px;
+         background:#38bdf8; color:#082f49; cursor:pointer; margin-top:14px; }
+  #buzzer { width:min(78vw, 340px); height:min(78vw, 340px); border-radius:50%; border:0;
+            font-size:2.4rem; font-weight:800; color:#fff; background:#ef4444;
+            box-shadow:0 10px 0 #991b1b; cursor:pointer; margin:20px 0; }
+  #buzzer:active:not(:disabled) { transform:translateY(8px); box-shadow:0 2px 0 #991b1b; }
+  #buzzer:disabled { background:#475569; box-shadow:0 10px 0 #334155; color:#94a3b8; cursor:not-allowed; }
+  #msg { font-size:1.5rem; min-height:80px; }
+  .win { color:#facc15; font-weight:800; font-size:2.2rem; }
+  .count { font-size:5rem; font-weight:800; }
+  .hidden { display:none !important; }
+  .nome { color:#94a3b8; font-size:1rem; }
+</style>
+</head>
+<body>
+
+<!-- Passo 1: nome -->
+<div id="telaNome">
+  <h1>Qual é o seu nome?</h1>
+  <input id="nomeInput" maxlength="25" placeholder="Digite seu nome" autocomplete="off">
+  <br>
+  <button class="btn" id="entrarBtn">Entrar</button>
+</div>
+
+<!-- Passo 2: botão -->
+<div id="telaJogo" class="hidden">
+  <div class="nome" id="nomeLabel"></div>
+  <div id="msg"></div>
+  <button id="buzzer" disabled>APERTE!</button>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, set, onValue, onDisconnect, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { firebaseConfig, getSala } from "./firebase-config.js";
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const sala = getSala();
+const stateRef = ref(db, `salas/${sala}/state`);
+const $ = id => document.getElementById(id);
+const escapeHtml = t => String(t).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+// Identidade do aluno (mantida se ele recarregar a página)
+const myId = sessionStorage.getItem("alunoId") || (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
+sessionStorage.setItem("alunoId", myId);
+let myName = sessionStorage.getItem("alunoNome") || "";
+
+let state = null;
+let lockedRound = null; // rodada em que o aluno "queimou a largada"
+let pressed = false;    // já apertou nesta rodada
+let lastRound = null;
+
+function entrar() {
+  const nome = $("nomeInput").value.trim();
+  if (!nome) { $("nomeInput").focus(); return; }
+  myName = nome;
+  sessionStorage.setItem("alunoNome", nome);
+  const meRef = ref(db, `salas/${sala}/players/${myId}`);
+  set(meRef, { name: nome });
+  onDisconnect(meRef).remove();
+  $("telaNome").classList.add("hidden");
+  $("telaJogo").classList.remove("hidden");
+  $("nomeLabel").textContent = `Jogador: ${nome}`;
+  onValue(stateRef, snap => { state = snap.val(); render(); });
+}
+$("entrarBtn").onclick = entrar;
+$("nomeInput").addEventListener("keydown", e => { if (e.key === "Enter") entrar(); });
+if (myName) { $("nomeInput").value = myName; entrar(); }
+
+function render() {
+  const s = state || { status: "idle" };
+  if (s.round !== lastRound) { lastRound = s.round; pressed = false; }
+  const msg = $("msg"), btn = $("buzzer");
+  const queimou = lockedRound !== null && lockedRound === s.round;
+
+  if (s.status === "idle") {
+    msg.textContent = "Aguarde a pergunta do professor...";
+    btn.disabled = true;
+  } else if (s.status === "countdown") {
+    msg.innerHTML = queimou
+      ? `<span style="color:#f87171">Queimou a largada! 🚫</span>`
+      : `<span class="count">${s.count}</span>`;
+    btn.disabled = queimou; // pode apertar, mas cedo demais = eliminado
+  } else if (s.status === "open") {
+    msg.innerHTML = queimou
+      ? `<span style="color:#f87171">Você foi eliminado nesta rodada 🚫</span>`
+      : `<span style="color:#22c55e;font-weight:800;font-size:3rem">JÁ!</span>`;
+    btn.disabled = queimou || pressed;
+  } else if (s.status === "finished") {
+    btn.disabled = true;
+    const venceu = s.winner && s.winner.id === myId;
+    msg.innerHTML = venceu
+      ? `<div class="win">🏆 VOCÊ GANHOU!</div>`
+      : `<div>🏆 <span class="win">${escapeHtml(s.winner.name)}</span><br>foi o mais rápido!</div>`;
+  }
+}
+
+$("buzzer").addEventListener("pointerdown", async () => {
+  if (!state) return;
+  // Apertou antes do fim da contagem = queimou a largada
+  if (state.status === "countdown") {
+    lockedRound = state.round;
+    render();
+    return;
+  }
+  if (state.status !== "open" || pressed) return;
+  pressed = true;
+  $("buzzer").disabled = true;
+
+  // Transação: só o primeiro a chegar ao servidor vira ganhador
+  await runTransaction(stateRef, cur => {
+    if (cur === null) return cur;
+    if (cur.status === "open" && !cur.winner) {
+      cur.status = "finished";
+      cur.winner = { id: myId, name: myName };
+      return cur;
+    }
+    return; // alguém já ganhou: cancela
+  });
+});
+</script>
+</body>
+</html>

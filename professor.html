@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Professor - Quem responde primeiro</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, Arial, sans-serif; background:#0f172a; color:#f8fafc;
+         min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:24px; }
+  h1 { margin:0 0 4px; font-size:1.6rem; }
+  .sub { color:#94a3b8; margin-bottom:20px; text-align:center; }
+  .sub input { background:#1e293b; color:#f8fafc; border:1px solid #334155; border-radius:6px; padding:4px 8px; width:120px; }
+  #display { width:100%; max-width:800px; min-height:320px; background:#1e293b; border-radius:20px;
+             display:flex; align-items:center; justify-content:center; text-align:center; padding:20px;
+             font-size:2rem; margin-bottom:20px; }
+  #display .big { font-size:10rem; font-weight:800; line-height:1; }
+  #display .winner { font-size:4rem; font-weight:800; color:#facc15; }
+  #display .small { font-size:1.2rem; color:#94a3b8; margin-top:10px; }
+  button { font-size:1.4rem; font-weight:700; padding:16px 32px; border:0; border-radius:12px;
+           background:#22c55e; color:#052e16; cursor:pointer; }
+  button:disabled { background:#475569; color:#94a3b8; cursor:not-allowed; }
+  #info { margin-top:20px; color:#94a3b8; text-align:center; max-width:800px; }
+  #players { margin-top:8px; color:#cbd5e1; }
+  a { color:#38bdf8; }
+  #qr { display:inline-block; background:#fff; padding:12px; border-radius:12px; margin:12px 0 4px; cursor:zoom-in; }
+  #qr.grande { cursor:zoom-out; }
+  #qr img, #qr canvas { display:block; }
+  .dica { font-size:.85rem; color:#64748b; }
+</style>
+</head>
+<body>
+  <h1>👩‍🏫 Painel do Professor</h1>
+  <div class="sub">
+    Sala: <input id="salaInput" maxlength="30">
+    <button id="salaBtn" style="font-size:.9rem;padding:6px 12px">Trocar</button>
+  </div>
+
+  <div id="display"></div>
+  <button id="startBtn">▶ Iniciar contagem</button>
+
+  <div id="info">
+    <div>📱 Alunos: escaneiem para entrar</div>
+    <div id="qr"></div>
+    <div class="dica">Clique no QR Code para ampliar / reduzir</div>
+    <div style="margin-top:10px">Ou acesse: <a id="linkAluno" target="_blank"></a></div>
+    <div id="players"></div>
+  </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+// Este bloco NÃO depende do Firebase: o botão "Trocar" e o link funcionam sempre
+(function () {
+  var p = new URLSearchParams(location.search);
+  var sala = (p.get("sala") || "turma1").replace(/[.#$\[\]\/]/g, "").slice(0, 30);
+  var input = document.getElementById("salaInput");
+  input.value = sala;
+  function trocar() {
+    var s = input.value.trim().replace(/[.#$\[\]\/]/g, "") || "turma1";
+    location.href = location.pathname + "?sala=" + encodeURIComponent(s);
+  }
+  document.getElementById("salaBtn").addEventListener("click", trocar);
+  input.addEventListener("keydown", function (e) { if (e.key === "Enter") trocar(); });
+  var link = location.origin + location.pathname.replace("professor.html", "aluno.html") + "?sala=" + encodeURIComponent(sala);
+  if (location.protocol === "file:") link = "(publique no GitHub Pages para gerar o link)";
+  var a = document.getElementById("linkAluno");
+  a.href = link; a.textContent = link;
+
+  // QR Code (clique para ampliar, útil no projetor)
+  var qrBox = document.getElementById("qr");
+  var qrObj = null;
+  function desenharQR(tamanho) {
+    qrBox.innerHTML = "";
+    qrObj = new QRCode(qrBox, { text: link, width: tamanho, height: tamanho, correctLevel: QRCode.CorrectLevel.M });
+  }
+  if (location.protocol === "file:" || typeof QRCode === "undefined") {
+    qrBox.style.display = "none";
+  } else {
+    var grande = false;
+    desenharQR(200);
+    qrBox.addEventListener("click", function () {
+      grande = !grande;
+      qrBox.classList.toggle("grande", grande);
+      desenharQR(grande ? 380 : 200);
+    });
+  }
+})();
+</script>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, set, update, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { firebaseConfig, getSala } from "./firebase-config.js";
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const sala = getSala();
+const stateRef = ref(db, `salas/${sala}/state`);
+const playersRef = ref(db, `salas/${sala}/players`);
+
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let state = null;
+let running = false;
+
+// Renderização
+function render() {
+  const d = $("display");
+  const s = state || { status: "idle" };
+  if (s.status === "idle") {
+    d.innerHTML = `<div>Faça sua pergunta oral para a turma e<br>clique em <b>Iniciar contagem</b>.</div>`;
+  } else if (s.status === "countdown") {
+    d.innerHTML = `<div class="big">${s.count}</div>`;
+  } else if (s.status === "open") {
+    d.innerHTML = `<div><div class="big" style="color:#22c55e">JÁ!</div><div class="small">Aguardando o primeiro aluno...</div></div>`;
+  } else if (s.status === "finished") {
+    d.innerHTML = `<div>🏆<div class="winner">${escapeHtml(s.winner.name)}</div><div class="small">foi o mais rápido!</div></div>`;
+  }
+  $("startBtn").disabled = running || s.status === "countdown" || s.status === "open";
+  $("startBtn").textContent = s.status === "finished" ? "▶ Nova pergunta" : "▶ Iniciar contagem";
+}
+function escapeHtml(t) {
+  return String(t).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
+onValue(stateRef, snap => { state = snap.val(); render(); });
+onValue(playersRef, snap => {
+  const p = snap.val() || {};
+  const nomes = Object.values(p).map(x => escapeHtml(x.name));
+  $("players").innerHTML = `👥 ${nomes.length} aluno(s) conectado(s)` + (nomes.length ? `: ${nomes.join(", ")}` : "");
+});
+
+// Iniciar contagem 3, 2, 1
+$("startBtn").onclick = async () => {
+  if (running) return;
+  running = true; render();
+  const round = ((state && state.round) || 0) + 1;
+  await set(stateRef, { status: "countdown", count: 3, winner: null, round });
+  await sleep(1000);
+  await update(stateRef, { count: 2 });
+  await sleep(1000);
+  await update(stateRef, { count: 1 });
+  await sleep(1000);
+  await update(stateRef, { status: "open", count: 0 }); // liberado!
+  running = false;
+};
+
+render();
+</script>
+</body>
+</html>
