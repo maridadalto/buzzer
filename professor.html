@@ -55,7 +55,7 @@
 
 <!-- PAINEL -->
 <div id="painel" class="hidden" style="width:100%;display:flex;flex-direction:column;align-items:center">
-  <div id="topo"><span id="uidLabel" class="dica" style="margin-right:auto;align-self:center;user-select:all"></span><button class="pequeno" id="sairBtn">Sair</button></div>
+  <div id="topo"><button class="pequeno" id="sairBtn">Sair</button></div>
   <h1>👩‍🏫 Painel do Professor</h1>
   <div class="sub">
     Sala: <input id="salaInput" maxlength="30">
@@ -163,7 +163,6 @@ $("sairBtn").onclick = () => signOut(auth);
 
 onAuthStateChanged(auth, user => {
   if (user) {
-    $("uidLabel").textContent = "UID: " + user.uid;
     $("loginBox").classList.add("hidden");
     $("painel").classList.remove("hidden");
     iniciarPainel();
@@ -217,7 +216,7 @@ $("startBtn").onclick = async () => {
     await sleep(1000);
     await update(stateRef, { status: "open", count: 0 });
   } catch (e) {
-    alert("Erro ao iniciar: " + e.message + "\n\nSeu UID: " + (auth.currentUser ? auth.currentUser.uid : "(não logado)") + "\nEle deve ser IDÊNTICO ao UID escrito nas regras do banco.");
+    alert("Erro ao iniciar: " + e.message + "\nVerifique as permissões nas regras do banco de dados.");
   }
   running = false;
   render();
