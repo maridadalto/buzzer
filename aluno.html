@@ -112,13 +112,15 @@ function render() {
 
 $("buzzer").addEventListener("pointerdown", async () => {
   if (!state) return;
-  // Apertou antes do fim da contagem = queimou a largada
+  // Apertou antes do fim da contagem = queima a largada nesta rodada
   if (state.status === "countdown") {
     lockedRound = state.round;
     render();
     return;
   }
-  if (state.status !== "open" || pressed) return;
+  // Bloqueia se: não está "aberto", já apertou, ou já queimou a largada NESTA rodada
+  const queimouAgora = lockedRound !== null && lockedRound === state.round;
+  if (state.status !== "open" || pressed || queimouAgora) return;
   pressed = true;
   $("buzzer").disabled = true;
 
