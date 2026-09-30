@@ -24,6 +24,15 @@
   .count { font-size:5rem; font-weight:800; }
   .hidden { display:none !important; }
   .nome { color:#94a3b8; font-size:1rem; }
+
+  #ranking { width:100%; max-width:340px; margin-top:8px; }
+  .rank-item { display:flex; align-items:center; gap:12px; background:#1e293b; border-radius:12px;
+               padding:10px 16px; margin-bottom:8px; font-size:1.1rem; text-align:left; }
+  .rank-item .medalha { font-size:1.5rem; width:30px; text-align:center; }
+  .rank-item .nome-item { font-weight:700; color:#f8fafc; }
+  .rank-item.ouro { background:#78350f; }
+  .rank-item.ativo { background:#78350f; outline:2px solid #facc15; }
+  .rank-item.voce { outline:2px solid #38bdf8; }
 </style>
 </head>
 <body>
@@ -41,19 +50,22 @@
   <div class="nome" id="nomeLabel"></div>
   <div id="msg"></div>
   <button id="buzzer" disabled>APERTE!</button>
+  <div id="ranking"></div>
 </div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, set, onValue, onDisconnect, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { getDatabase, ref, set, onValue, onDisconnect, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 import { firebaseConfig, getSala } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const sala = getSala();
 const stateRef = ref(db, `salas/${sala}/state`);
+const answersRef = ref(db, `salas/${sala}/answers`);
 const $ = id => document.getElementById(id);
 const escapeHtml = t => String(t).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const MEDALHAS = ["🥇", "🥈", "🥉"];
 
 // Identidade do aluno (mantida se ele recarregar a página)
 const myId = sessionStorage.getItem("alunoId") || (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
@@ -61,6 +73,7 @@ sessionStorage.setItem("alunoId", myId);
 let myName = sessionStorage.getItem("alunoNome") || "";
 
 let state = null;
+let answersAll = null;
 let lockedRound = null; // rodada em que o aluno "queimou a largada"
 let pressed = false;    // já apertou nesta rodada
 let lastRound = null;
@@ -77,16 +90,39 @@ function entrar() {
   $("telaJogo").classList.remove("hidden");
   $("nomeLabel").textContent = `Jogador: ${nome}`;
   onValue(stateRef, snap => { state = snap.val(); render(); });
+  onValue(answersRef, snap => { answersAll = snap.val(); render(); });
 }
 $("entrarBtn").onclick = entrar;
 $("nomeInput").addEventListener("keydown", e => { if (e.key === "Enter") entrar(); });
 if (myName) { $("nomeInput").value = myName; entrar(); }
+
+function topDaRodada() {
+  if (!state || !answersAll) return [];
+  const doRound = answersAll[state.round];
+  if (!doRound) return [];
+  return Object.entries(doRound)
+    .map(([id, v]) => ({ id, ...v }))
+    .filter(v => typeof v.ts === "number")
+    .sort((a, b) => a.ts - b.ts)
+    .slice(0, 3);
+}
+function quemEstaRespondendo(top, revealIdx) {
+  const atual = top[revealIdx];
+  if (!atual) return "";
+  return `<div class="rank-item ativo">
+      <span class="medalha">🎤</span>
+      <span class="nome-item">${escapeHtml(atual.name)}${atual.id === myId ? " (você)" : ""} está respondendo</span>
+    </div>`;
+}
 
 function render() {
   const s = state || { status: "idle" };
   if (s.round !== lastRound) { lastRound = s.round; pressed = false; }
   const msg = $("msg"), btn = $("buzzer");
   const queimou = lockedRound !== null && lockedRound === s.round;
+  const top = topDaRodada();
+  const revealIdx = s.reveal || 0;
+  const atual = top[revealIdx];
 
   if (s.status === "idle") {
     msg.textContent = "Aguarde a pergunta do professor...";
@@ -95,43 +131,53 @@ function render() {
     msg.innerHTML = queimou
       ? `<span style="color:#f87171">Queimou a largada! 🚫</span>`
       : `<span class="count">${s.count}</span>`;
-    btn.disabled = queimou; // pode apertar, mas cedo demais = eliminado
+    btn.disabled = queimou;
   } else if (s.status === "open") {
-    msg.innerHTML = queimou
-      ? `<span style="color:#f87171">Você foi eliminado nesta rodada 🚫</span>`
-      : `<span style="color:#22c55e;font-weight:800;font-size:3rem">JÁ!</span>`;
-    btn.disabled = queimou || pressed;
-  } else if (s.status === "finished") {
-    btn.disabled = true;
-    const venceu = s.winner && s.winner.id === myId;
-    msg.innerHTML = venceu
-      ? `<div class="win">🏆 VOCÊ GANHOU!</div>`
-      : `<div>🏆 <span class="win">${escapeHtml(s.winner.name)}</span><br>foi o mais rápido!</div>`;
+    if (queimou) {
+      msg.innerHTML = `<span style="color:#f87171">Você foi eliminado nesta rodada 🚫</span>`;
+      btn.disabled = true;
+    } else if (!pressed) {
+      msg.innerHTML = `<span style="color:#22c55e;font-weight:800;font-size:3rem">JÁ!</span>`;
+      btn.disabled = false;
+    } else {
+      const souAtual = atual && atual.id === myId;
+      const meuIndex = top.findIndex(r => r.id === myId);
+      if (souAtual) {
+        msg.innerHTML = `<div class="win">🎤 É A SUA VEZ!<br><span style="font-size:1rem;font-weight:400;color:#94a3b8">Responda em voz alta</span></div>`;
+      } else if (meuIndex !== -1 && meuIndex < revealIdx) {
+        msg.innerHTML = `<div>Você já teve sua vez. Aguarde a próxima pergunta.</div>`;
+      } else {
+        msg.innerHTML = `<div>Você respondeu! Aguarde, pode ser chamado em seguida...</div>`;
+      }
+      btn.disabled = true;
+    }
   }
+  $("ranking").innerHTML = s.status === "open" ? quemEstaRespondendo(top, revealIdx) : "";
 }
 
 $("buzzer").addEventListener("pointerdown", async () => {
   if (!state) return;
-  // Apertou antes do fim da contagem = queimou a largada
+  // Apertou antes do fim da contagem = queima a largada nesta rodada
   if (state.status === "countdown") {
     lockedRound = state.round;
     render();
     return;
   }
-  if (state.status !== "open" || pressed) return;
+  // Bloqueia se: não está "aberto", já apertou, ou já queimou a largada NESTA rodada
+  const queimouAgora = lockedRound !== null && lockedRound === state.round;
+  if (state.status !== "open" || pressed || queimouAgora) return;
   pressed = true;
   $("buzzer").disabled = true;
 
-  // Transação: só o primeiro a chegar ao servidor vira ganhador
-  await runTransaction(stateRef, cur => {
-    if (cur === null) return cur;
-    if (cur.status === "open" && !cur.winner) {
-      cur.status = "finished";
-      cur.winner = { id: myId, name: myName };
-      return cur;
-    }
-    return; // alguém já ganhou: cancela
-  });
+  try {
+    await set(ref(db, `salas/${sala}/answers/${state.round}/${myId}`), {
+      name: myName,
+      ts: serverTimestamp()
+    });
+  } catch (e) {
+    // Se o servidor recusar (ex.: rodada já fechada), apenas mantém o botão desabilitado
+  }
+  render();
 });
 </script>
 </body>

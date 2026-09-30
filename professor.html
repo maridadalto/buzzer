@@ -20,11 +20,10 @@
   #loginErro { color:#f87171; min-height:24px; margin-top:8px; font-size:.95rem; }
 
   /* Painel */
-  #display { width:100%; max-width:800px; min-height:320px; background:#1e293b; border-radius:20px;
+  #display { width:100%; max-width:800px; min-height:220px; background:#1e293b; border-radius:20px;
              display:flex; align-items:center; justify-content:center; text-align:center; padding:20px;
-             font-size:2rem; margin-bottom:20px; }
-  #display .big { font-size:10rem; font-weight:800; line-height:1; }
-  #display .winner { font-size:4rem; font-weight:800; color:#facc15; }
+             font-size:2rem; margin-bottom:16px; }
+  #display .big { font-size:9rem; font-weight:800; line-height:1; }
   #display .small { font-size:1.2rem; color:#94a3b8; margin-top:10px; }
   button { font-size:1.4rem; font-weight:700; padding:16px 32px; border:0; border-radius:12px;
            background:#22c55e; color:#052e16; cursor:pointer; }
@@ -39,6 +38,18 @@
   #qr img, #qr canvas { display:block; }
   .dica { font-size:.85rem; color:#64748b; }
   #topo { width:100%; max-width:800px; display:flex; justify-content:flex-end; margin-bottom:8px; }
+
+  /* Ranking */
+  #ranking { width:100%; max-width:800px; margin-bottom:16px; }
+  .rank-item { display:flex; align-items:center; gap:12px; background:#1e293b; border-radius:12px;
+               padding:10px 16px; margin-bottom:8px; font-size:1.2rem; }
+  .rank-item .medalha { font-size:1.6rem; width:34px; text-align:center; }
+  .rank-item .nome { font-weight:700; }
+  .rank-item.ouro { background:#78350f; }
+  .rank-item.ativo { background:#78350f; outline:2px solid #facc15; }
+  .rank-item.passou { opacity:.4; text-decoration:line-through; }
+  #proximoBtn { background:#ef4444; color:#fff; margin-top:10px; font-size:1.1rem; padding:10px 20px; }
+  #proximoBtn:disabled { background:#475569; color:#94a3b8; }
 </style>
 </head>
 <body>
@@ -63,6 +74,8 @@
   </div>
 
   <div id="display"></div>
+  <div id="ranking"></div>
+  <button id="proximoBtn" class="hidden">❌ Errou, chamar próximo</button>
   <button id="startBtn">▶ Iniciar contagem</button>
 
   <div id="info">
@@ -125,12 +138,15 @@ const auth = getAuth(app);
 const sala = getSala();
 const stateRef = ref(db, `salas/${sala}/state`);
 const playersRef = ref(db, `salas/${sala}/players`);
+const answersRef = ref(db, `salas/${sala}/answers`);
 
 const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const escapeHtml = t => String(t).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const MEDALHAS = ["🥇", "🥈", "🥉"];
 
 let state = null;
+let answersAll = null;
 let running = false;
 let listening = false;
 
@@ -173,27 +189,59 @@ onAuthStateChanged(auth, user => {
   }
 });
 
+/* ---------- RANKING ---------- */
+function topDaRodada() {
+  if (!state || !answersAll) return [];
+  const doRound = answersAll[state.round];
+  if (!doRound) return [];
+  return Object.values(doRound)
+    .filter(v => v && typeof v.ts === "number")
+    .sort((a, b) => a.ts - b.ts)
+    .slice(0, 3);
+}
+function rankingHTML(top, activeIdx) {
+  if (!top.length) return "";
+  return top.map((r, i) => {
+    const cls = i === activeIdx ? "ativo" : (i < activeIdx ? "passou" : "");
+    return `<div class="rank-item ${cls}">
+       <span class="medalha">${MEDALHAS[i]}</span>
+       <span class="nome">${escapeHtml(r.name)}</span>
+     </div>`;
+  }).join("");
+}
+
 /* ---------- PAINEL ---------- */
 function render() {
   const d = $("display");
   const s = state || { status: "idle" };
+  const top = topDaRodada();
+  const revealIdx = (s.reveal) || 0;
+
   if (s.status === "idle") {
     d.innerHTML = `<div>Faça sua pergunta oral para a turma e<br>clique em <b>Iniciar contagem</b>.</div>`;
   } else if (s.status === "countdown") {
     d.innerHTML = `<div class="big">${s.count}</div>`;
   } else if (s.status === "open") {
-    d.innerHTML = `<div><div class="big" style="color:#22c55e">JÁ!</div><div class="small">Aguardando o primeiro aluno...</div></div>`;
-  } else if (s.status === "finished") {
-    d.innerHTML = `<div>🏆<div class="winner">${escapeHtml(s.winner.name)}</div><div class="small">foi o mais rápido!</div></div>`;
+    d.innerHTML = top.length
+      ? `<div class="small">🎤 Respondendo agora:<br><b style="font-size:1.6rem;color:#facc15">${escapeHtml((top[revealIdx] || {}).name || "-")}</b></div>`
+      : `<div><div class="big" style="color:#22c55e">JÁ!</div><div class="small">Aguardando o primeiro aluno...</div></div>`;
   }
-  $("startBtn").disabled = running || s.status === "countdown" || s.status === "open";
-  $("startBtn").textContent = s.status === "finished" ? "▶ Nova pergunta" : "▶ Iniciar contagem";
+  $("ranking").innerHTML = rankingHTML(top, revealIdx);
+
+  const temProximo = s.status === "open" && top.length > revealIdx + 1;
+  $("proximoBtn").classList.toggle("hidden", s.status !== "open" || top.length === 0);
+  $("proximoBtn").disabled = !temProximo;
+  $("proximoBtn").textContent = temProximo ? "❌ Errou, chamar próximo" : "❌ Não há mais respostas";
+
+  $("startBtn").disabled = running || s.status === "countdown";
+  $("startBtn").textContent = (s.status === "open" && top.length) ? "▶ Nova pergunta" : "▶ Iniciar contagem";
 }
 
 function iniciarPainel() {
   if (listening) return;
   listening = true;
   onValue(stateRef, snap => { state = snap.val(); render(); });
+  onValue(answersRef, snap => { answersAll = snap.val(); render(); });
   onValue(playersRef, snap => {
     const p = snap.val() || {};
     const nomes = Object.values(p).map(x => escapeHtml(x.name));
@@ -208,18 +256,34 @@ $("startBtn").onclick = async () => {
   running = true; render();
   try {
     const round = ((state && state.round) || 0) + 1;
-    await set(stateRef, { status: "countdown", count: 3, winner: null, round });
+    await set(stateRef, { status: "countdown", count: 3, round, reveal: 0 });
     await sleep(1000);
-    await update(stateRef, { count: 2 });
+    await set(stateRef, { status: "countdown", count: 2, round, reveal: 0 });
     await sleep(1000);
-    await update(stateRef, { count: 1 });
+    await set(stateRef, { status: "countdown", count: 1, round, reveal: 0 });
     await sleep(1000);
-    await update(stateRef, { status: "open", count: 0 });
+    await set(stateRef, { status: "open", count: 0, round, reveal: 0 });
   } catch (e) {
     alert("Erro ao iniciar: " + e.message + "\nVerifique as permissões nas regras do banco de dados.");
   }
   running = false;
   render();
+};
+
+// Marca a resposta atual como errada e chama o próximo colocado
+let avancando = false;
+$("proximoBtn").onclick = async () => {
+  if (avancando || !state) return;
+  const top = topDaRodada();
+  const idx = state.reveal || 0;
+  if (top.length <= idx + 1) return;
+  avancando = true;
+  try {
+    await update(stateRef, { reveal: idx + 1 });
+  } catch (e) {
+    alert("Erro ao chamar o próximo: " + e.message);
+  }
+  avancando = false;
 };
 </script>
 </body>
