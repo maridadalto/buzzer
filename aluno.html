@@ -110,7 +110,7 @@ function quemEstaRespondendo(top, revealIdx) {
   const atual = top[revealIdx];
   if (!atual) return "";
   return `<div class="rank-item ativo">
-      <span class="medalha">🎤</span>
+      <span class="medalha"></span>
       <span class="nome-item">${escapeHtml(atual.name)}${atual.id === myId ? " (você)" : ""} está respondendo</span>
     </div>`;
 }
@@ -143,7 +143,7 @@ function render() {
       const souAtual = atual && atual.id === myId;
       const meuIndex = top.findIndex(r => r.id === myId);
       if (souAtual) {
-        msg.innerHTML = `<div class="win">🎤 É A SUA VEZ!<br><span style="font-size:1rem;font-weight:400;color:#94a3b8">Responda em voz alta</span></div>`;
+        msg.innerHTML = `<div class="win">É A SUA VEZ!<br><span style="font-size:1rem;font-weight:400;color:#94a3b8">Responda em voz alta</span></div>`;
       } else if (meuIndex !== -1 && meuIndex < revealIdx) {
         msg.innerHTML = `<div>Você já teve sua vez. Aguarde a próxima pergunta.</div>`;
       } else {

@@ -67,7 +67,7 @@
 <!-- PAINEL -->
 <div id="painel" class="hidden" style="width:100%;display:flex;flex-direction:column;align-items:center">
   <div id="topo"><button class="pequeno" id="sairBtn">Sair</button></div>
-  <h1>👩‍🏫 Painel do Professor</h1>
+  <h1>Painel do Professor</h1>
   <div class="sub">
     Sala: <input id="salaInput" maxlength="30">
     <button id="salaBtn" class="pequeno">Trocar</button>
@@ -79,7 +79,7 @@
   <button id="startBtn">▶ Iniciar contagem</button>
 
   <div id="info">
-    <div>📱 Alunos: escaneiem para entrar</div>
+    <div>Alunos: escaneiem para entrar</div>
     <div id="qr"></div>
     <div class="dica">Clique no QR Code para ampliar / reduzir</div>
     <div style="margin-top:10px">Ou acesse: <a id="linkAluno" target="_blank"></a></div>
@@ -223,7 +223,7 @@ function render() {
     d.innerHTML = `<div class="big">${s.count}</div>`;
   } else if (s.status === "open") {
     d.innerHTML = top.length
-      ? `<div class="small">🎤 Respondendo agora:<br><b style="font-size:1.6rem;color:#facc15">${escapeHtml((top[revealIdx] || {}).name || "-")}</b></div>`
+      ? `<div class="small">Respondendo agora:<br><b style="font-size:1.6rem;color:#facc15">${escapeHtml((top[revealIdx] || {}).name || "-")}</b></div>`
       : `<div><div class="big" style="color:#22c55e">JÁ!</div><div class="small">Aguardando o primeiro aluno...</div></div>`;
   }
   $("ranking").innerHTML = rankingHTML(top, revealIdx);
